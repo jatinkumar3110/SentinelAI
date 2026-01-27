@@ -1,19 +1,8 @@
 #!/bin/bash
-# Production startup script for SentinelAI backend
-
-# Load environment variables if .env exists
-if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
-fi
-
-# Default to port 8000 if not set
-PORT=${PORT:-8000}
-
-# Start the application using gunicorn
 gunicorn app.main:app \
-    -k uvicorn.workers.UvicornWorker \
-    --bind 0.0.0.0:$PORT \
     --workers 1 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 0.0.0.0:${PORT:-7860} \
     --timeout 300 \
     --access-logfile - \
     --error-logfile -
