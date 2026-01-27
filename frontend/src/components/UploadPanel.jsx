@@ -130,13 +130,12 @@ const UploadPanel = ({ onPredictionComplete }) => {
           <Sparkles className="w-4 h-4 text-blue-400" />
           <span className="text-sm font-semibold text-blue-400">Load Sample Data</span>
         </div>
-        <div className="flex flex-wrap gap-2 max-w-full">
+        <div className="sample-grid">
           {Object.entries(SAMPLE_DATA).map(([key, sample]) => (
             <button
               key={key}
               onClick={() => loadSample(key)}
-              className="flex-shrink-0 max-w-full bg-dark-bg hover:bg-gray-800 border border-dark-border hover:border-blue-500/50 rounded-lg p-3 text-left transition-all duration-200 group"
-              style={{ minWidth: 'min(150px, 100%)', flexBasis: 'calc(20% - 8px)' }}
+              className="bg-dark-bg hover:bg-gray-800 border border-dark-border hover:border-blue-500/50 rounded-lg p-3 text-left transition-all duration-200 group"
             >
               <div className="text-xs font-semibold text-white group-hover:text-blue-400 mb-1 break-words">
                 {sample.name.split('(')[0].trim()}
