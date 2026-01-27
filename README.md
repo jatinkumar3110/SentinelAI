@@ -63,22 +63,98 @@ npm run dev
 
 Frontend runs at: **http://localhost:3000**
 
-### 4. Docker Deployment (Recommended)
+### 4. Production Deployment
+
+#### Backend on AWS EC2 Free Tier
+
 ```bash
-# From project root
-docker-compose up -d
+# 1. Launch Ubuntu instance (t2.micro)
+# 2. SSH into instance
+ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
 
-# Check status
-docker-compose ps
+# 3. Install dependencies
+sudo apt update && sudo apt upgrade -y
+sudo apt install python3-pip python3-venv git -y
 
-# View logs
-docker-compose logs -f
+# 4. Clone repository
+git clone <your-repo-url>
+cd Resume\ Project\ 1/backend
+
+# 5. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 6. Install requirements
+pip install -r requirements.txt
+
+# 7. Configure environment
+cp .env.example .env
+nano .env  # Set MODEL_PATH, DATA_PATH, PORT=8000
+
+# 8. Train models
+python -m app.train.train_all
+
+# 9. Run in background with nohup
+nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+
+# Or use systemd (recommended)
+sudo nano /etc/systemd/system/sentinelai.service
 ```
 
-Full stack available at:
-- Frontend: **http://localhost:3000**
-- Backend: **http://localhost:8000**
-- API Docs: **http://localhost:8000/docs**
+**Systemd Service** (`/etc/systemd/system/sentinelai.service`):
+```ini
+[Unit]
+Description=SentinelAI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Resume Project 1/backend
+Environment="PATH=/home/ubuntu/Resume Project 1/backend/venv/bin"
+ExecStart=/home/ubuntu/Resume Project 1/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+# Enable and start service
+sudo systemctl enable sentinelai
+sudo systemctl start sentinelai
+sudo systemctl status sentinelai
+```
+
+**Configure Security Group**:
+- Allow inbound TCP on port 8000 from anywhere (0.0.0.0/0)
+- Allow SSH (port 22) from your IP
+
+Backend will be available at: `http://<EC2_PUBLIC_IP>:8000`
+
+#### Frontend on Netlify
+
+```bash
+# 1. Build frontend
+cd frontend
+cp .env.example .env
+
+# 2. Update .env with EC2 backend URL
+echo "VITE_API_URL=http://<EC2_PUBLIC_IP>:8000/api/v1" > .env
+
+# 3. Build
+npm install
+npm run build
+
+# 4. Deploy to Netlify
+# - Drag-drop dist/ folder to Netlify
+# - Or connect GitHub repository
+# - Build command: npm run build
+# - Publish directory: dist
+# - Environment variable: VITE_API_URL=http://<EC2_PUBLIC_IP>:8000/api/v1
+```
+
+Frontend will be available at: `https://<your-app>.netlify.app`
 
 ## Architecture
 

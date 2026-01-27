@@ -7,6 +7,8 @@ const MetricCard = ({ title, value, change, icon: Icon, color = 'blue' }) => {
     red: 'bg-red-500/10 text-red-500',
     green: 'bg-green-500/10 text-green-500',
     yellow: 'bg-yellow-500/10 text-yellow-500',
+    orange: 'bg-orange-500/10 text-orange-500',
+    purple: 'bg-purple-500/10 text-purple-500',
   };
 
   const changeColor = change >= 0 ? 'text-green-500' : 'text-red-500';

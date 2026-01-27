@@ -1,23 +1,130 @@
-from fastapi import APIRouter
-from pydantic import BaseModel
-from app.services.inference import get_prediction
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+import numpy as np
+
+from app.db.database import get_db
+from app.db.models import AnomalyRecord
+from app.schemas.request import PredictionRequest, StoreResultRequest
+from app.schemas.response import PredictionResponse, HistoryResponse, HistoryItem
+from app.services.inference_service import InferenceService
 
 router = APIRouter()
+inference_service = InferenceService()
 
 
-class PredictRequest(BaseModel):
-    text: str
+@router.post("/predict", response_model=PredictionResponse)
+async def predict_anomaly(request: PredictionRequest, db: Session = Depends(get_db)):
+    """
+    Multi-modal anomaly detection endpoint.
+    Accepts time-series, tabular, and log inputs.
+    Returns risk scores with explainability.
+    """
+    
+    # Input validation
+    timeseries_data = None
+    if request.timeseries:
+        if len(request.timeseries.values) > 1000:
+            raise HTTPException(
+                status_code=400,
+                detail="Time-series data exceeds maximum length of 1000 values"
+            )
+        timeseries_data = np.array(request.timeseries.values, dtype=np.float32)
+        # Check for invalid values (NaN, Inf)
+        if np.any(~np.isfinite(timeseries_data)):
+            raise HTTPException(
+                status_code=400,
+                detail="Time-series data contains invalid values (NaN or Inf)"
+            )
+    
+    tabular_features = None
+    if request.tabular:
+        tabular_features = request.tabular.model_dump()
+        # Validate tabular values are finite
+        for key, value in tabular_features.items():
+            if not np.isfinite(value):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Tabular feature '{key}' contains invalid value"
+                )
+    
+    log_text = None
+    if request.logs:
+        log_text = request.logs.text
+        # Sanitize and limit log text length
+        if len(log_text) > 10000:
+            raise HTTPException(
+                status_code=400,
+                detail="Log text exceeds maximum length of 10000 characters"
+            )
+        # Remove potential SQL injection or script injection
+        log_text = log_text.replace("'", "").replace('"', "").replace("<", "").replace(">", "")
+    
+    if timeseries_data is None and tabular_features is None and log_text is None:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one input type (timeseries, tabular, or logs) must be provided"
+        )
+    
+    try:
+        result, latency = inference_service.predict(
+            timeseries_data=timeseries_data,
+            tabular_features=tabular_features,
+            log_text=log_text
+        )
+        
+        record = AnomalyRecord(
+            anomaly_score=result['anomaly_score'],
+            failure_probability=result['failure_probability'],
+            log_risk=result['log_risk'],
+            final_risk_score=result['final_risk_score'],
+            explanation_values=result['explanation_values'],
+            alert_triggered=1 if result['alert_triggered'] else 0,
+            timeseries_features=timeseries_data.tolist() if timeseries_data is not None else None,
+            tabular_features=tabular_features,
+            log_text=log_text
+        )
+        
+        db.add(record)
+        db.commit()
+        
+        return PredictionResponse(
+            anomaly_score=result['anomaly_score'],
+            failure_probability=result['failure_probability'],
+            log_risk=result['log_risk'],
+            final_risk_score=result['final_risk_score'],
+            explanation_values=result['explanation_values'],
+            alert_triggered=result['alert_triggered'],
+            inference_latency_ms=latency
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
-class PredictResponse(BaseModel):
-    label: str
-    confidence: float
-
-
-@router.post("/predict", response_model=PredictResponse)
-async def predict(request: PredictRequest):
-    result = get_prediction(request.text)
-    return result
+@router.post("/store_result")
+async def store_result(request: StoreResultRequest, db: Session = Depends(get_db)):
+    """
+    Store prediction result manually.
+    """
+    
+    try:
+        record = AnomalyRecord(
+            anomaly_score=request.anomaly_score,
+            failure_probability=request.failure_probability,
+            log_risk=request.log_risk,
+            final_risk_score=request.final_risk_score,
+            explanation_values=request.explanation_values,
+            alert_triggered=1 if request.final_risk_score >= 0.85 else 0
+        )
+        
+        db.add(record)
+        db.commit()
+        
+        return {"status": "success", "id": record.id}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Storage failed: {str(e)}")
 
 
 @router.get("/history", response_model=HistoryResponse)

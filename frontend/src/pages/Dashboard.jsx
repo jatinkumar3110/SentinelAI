@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Target, Info } from 'lucide-react';
+import { Activity, Target, Info, AlertTriangle, Zap } from 'lucide-react';
 
 import MetricCard from '../components/MetricCard';
 import UploadPanel from '../components/UploadPanel';
 import RiskGauge from '../components/RiskGauge';
+import DonutChart from '../components/DonutChart';
 import LoadingOverlay from '../components/LoadingOverlay';
 import InfoPanel from '../components/InfoPanel';
 
@@ -13,18 +14,27 @@ const Dashboard = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
 
-  // Called by UploadPanel
+  // Called by UploadPanel with multi-modal results
   const handlePredictionComplete = (result) => {
     setIsProcessing(false);
 
-    // Backend returns: { label, confidence }
-    setPredictionResult({
-      label: result.label,
-      confidence: result.confidence
-    });
+    // Backend returns: { anomaly_score, failure_probability, log_risk, final_risk_score, explanation_values, alert_triggered, inference_latency_ms }
+    setPredictionResult(result);
   };
 
-  const confidenceValue = predictionResult?.confidence || 0;
+  const finalRisk = predictionResult?.final_risk_score || 0;
+  const anomalyScore = predictionResult?.anomaly_score || 0;
+  const failureProb = predictionResult?.failure_probability || 0;
+  const logRisk = predictionResult?.log_risk || 0;
+  const alertTriggered = predictionResult?.alert_triggered || false;
+  const latency = predictionResult?.inference_latency_ms || 0;
+
+  // Prepare donut chart data
+  const donutData = predictionResult ? [
+    { label: 'Anomaly Score', value: anomalyScore * 100, color: '#3b82f6' },
+    { label: 'Failure Prob', value: failureProb * 100, color: '#f59e0b' },
+    { label: 'Log Risk', value: logRisk * 100, color: '#ef4444' }
+  ] : [];
 
   return (
     <div className="p-8 space-y-6 relative">
@@ -32,7 +42,7 @@ const Dashboard = () => {
       {/* Loading Overlay */}
       <AnimatePresence>
         {isProcessing && (
-          <LoadingOverlay message="Running ML Model..." />
+          <LoadingOverlay message="Running Multi-Modal Analysis..." />
         )}
       </AnimatePresence>
 
@@ -40,7 +50,7 @@ const Dashboard = () => {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">Dashboard</h1>
-          <p className="text-gray-400">SentinelAI Text Classification</p>
+          <p className="text-gray-400">Multi-Modal Anomaly Detection</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -59,62 +69,90 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
-          title="Prediction"
-          value={predictionResult ? predictionResult.label : "N/A"}
+          title="Final Risk Score"
+          value={`${(finalRisk * 100).toFixed(1)}%`}
+          icon={AlertTriangle}
+          color={finalRisk > 0.7 ? "red" : finalRisk > 0.4 ? "orange" : "green"}
+        />
+
+        <MetricCard
+          title="Anomaly Score"
+          value={`${(anomalyScore * 100).toFixed(1)}%`}
           icon={Activity}
           color="blue"
         />
 
         <MetricCard
-          title="Confidence"
-          value={
-            predictionResult
-              ? (predictionResult.confidence * 100).toFixed(2) + "%"
-              : "0%"
-          }
+          title="Failure Probability"
+          value={`${(failureProb * 100).toFixed(1)}%`}
           icon={Target}
-          color="green"
+          color="orange"
+        />
+
+        <MetricCard
+          title="Log Risk"
+          value={`${(logRisk * 100).toFixed(1)}%`}
+          icon={Zap}
+          color="purple"
         />
       </div>
 
       {/* Main Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-        {/* Upload */}
+        {/* Upload Panel */}
         <UploadPanel
           onPredictionComplete={handlePredictionComplete}
           setIsProcessing={setIsProcessing}
         />
 
-        {/* Result Panel */}
+        {/* Results Panel */}
         {predictionResult && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-dark-card border border-dark-border rounded-xl p-6 flex flex-col items-center justify-center"
+            className="bg-dark-card border border-dark-border rounded-xl p-6"
           >
             <h3 className="text-white text-lg font-semibold mb-4">
-              Latest Result
+              Analysis Results
             </h3>
 
-            <RiskGauge
-              value={confidenceValue}
-              title="Model Confidence"
-            />
+            {/* Risk Gauge */}
+            <div className="mb-6">
+              <RiskGauge
+                value={finalRisk}
+                title="Final Risk Score"
+              />
+            </div>
 
-            <div className="mt-6 space-y-2 text-center">
-              <p className="text-gray-400">Prediction</p>
-              <p className="text-white text-xl font-bold">
-                {predictionResult.label}
-              </p>
+            {/* Donut Chart */}
+            <div className="mb-6">
+              <DonutChart
+                data={donutData}
+                title="Risk Breakdown"
+              />
+            </div>
 
-              <p className="text-gray-400 mt-2">Confidence</p>
-              <p className="text-green-400 text-lg font-semibold">
-                {(predictionResult.confidence * 100).toFixed(2)}%
-              </p>
+            {/* Alert Status */}
+            {alertTriggered && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-5 h-5 text-red-400" />
+                  <span className="text-red-400 font-semibold">ALERT TRIGGERED</span>
+                </div>
+                <p className="text-red-300 text-sm mt-1">
+                  High risk detected - immediate attention required
+                </p>
+              </div>
+            )}
+
+            {/* Latency */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-400">Inference Latency</span>
+              <span className="text-green-400 font-semibold">{latency.toFixed(1)} ms</span>
             </div>
           </motion.div>
         )}
