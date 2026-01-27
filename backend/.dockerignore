@@ -1,0 +1,55 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.env
+.venv
+*.egg-info/
+dist/
+build/
+
+# Model files (download/mount separately in production)
+*.pt
+*.pth
+*.pkl
+*.h5
+*.onnx
+models/
+
+# Data files
+*.csv
+*.npz
+*.parquet
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
