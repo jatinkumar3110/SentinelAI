@@ -1,25 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 from typing import List
+from datetime import datetime, timedelta
 import numpy as np
 
 from app.db.database import get_db
-from app.db.models import AnomalyRecord
-from app.schemas.request import PredictionRequest, StoreResultRequest
-from app.schemas.response import PredictionResponse, HistoryResponse, HistoryItem
+from app.db.models import Prediction
+from app.schemas.request import PredictionRequest
 from app.services.inference_service import InferenceService
+from app.core.model_registry import get_model_status
 
 router = APIRouter()
 inference_service = InferenceService()
 
 
-@router.post("/predict", response_model=PredictionResponse)
+@router.post("/predict")
 async def predict_anomaly(request: PredictionRequest, db: Session = Depends(get_db)):
-    """
-    Multi-modal anomaly detection endpoint.
-    Accepts time-series, tabular, and log inputs.
-    Returns risk scores with explainability.
-    """
     
     # Input validation
     timeseries_data = None
@@ -30,7 +27,6 @@ async def predict_anomaly(request: PredictionRequest, db: Session = Depends(get_
                 detail="Time-series data exceeds maximum length of 1000 values"
             )
         timeseries_data = np.array(request.timeseries.values, dtype=np.float32)
-        # Check for invalid values (NaN, Inf)
         if np.any(~np.isfinite(timeseries_data)):
             raise HTTPException(
                 status_code=400,
@@ -40,7 +36,6 @@ async def predict_anomaly(request: PredictionRequest, db: Session = Depends(get_
     tabular_features = None
     if request.tabular:
         tabular_features = request.tabular.model_dump()
-        # Validate tabular values are finite
         for key, value in tabular_features.items():
             if not np.isfinite(value):
                 raise HTTPException(
@@ -51,111 +46,81 @@ async def predict_anomaly(request: PredictionRequest, db: Session = Depends(get_
     log_text = None
     if request.logs:
         log_text = request.logs.text
-        # Sanitize and limit log text length
         if len(log_text) > 10000:
             raise HTTPException(
                 status_code=400,
                 detail="Log text exceeds maximum length of 10000 characters"
             )
-        # Remove potential SQL injection or script injection
         log_text = log_text.replace("'", "").replace('"', "").replace("<", "").replace(">", "")
     
     if timeseries_data is None and tabular_features is None and log_text is None:
         raise HTTPException(
             status_code=400,
-            detail="At least one input type (timeseries, tabular, or logs) must be provided"
+            detail="At least one input type must be provided"
         )
     
     try:
-        result, latency = inference_service.predict(
+        result = inference_service.predict(
             timeseries_data=timeseries_data,
             tabular_features=tabular_features,
             log_text=log_text
         )
         
-        record = AnomalyRecord(
+        record = Prediction(
             anomaly_score=result['anomaly_score'],
             failure_probability=result['failure_probability'],
             log_risk=result['log_risk'],
             final_risk_score=result['final_risk_score'],
-            explanation_values=result['explanation_values'],
-            alert_triggered=1 if result['alert_triggered'] else 0,
-            timeseries_features=timeseries_data.tolist() if timeseries_data is not None else None,
-            tabular_features=tabular_features,
-            log_text=log_text
+            alert_severity=result['alert_severity']
         )
         
         db.add(record)
         db.commit()
+        db.refresh(record)
         
-        return PredictionResponse(
-            anomaly_score=result['anomaly_score'],
-            failure_probability=result['failure_probability'],
-            log_risk=result['log_risk'],
-            final_risk_score=result['final_risk_score'],
-            explanation_values=result['explanation_values'],
-            alert_triggered=result['alert_triggered'],
-            inference_latency_ms=latency
-        )
+        return {
+            "id": record.id,
+            "timestamp": record.timestamp.isoformat(),
+            "anomaly_score": result['anomaly_score'],
+            "failure_probability": result['failure_probability'],
+            "log_risk": result['log_risk'],
+            "final_risk_score": result['final_risk_score'],
+            "alert_severity": result['alert_severity'],
+            "alert_triggered": result['alert_severity'] in ["HIGH", "CRITICAL"],
+            "inference_latency_ms": result['inference_latency_ms']
+        }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
-@router.post("/store_result")
-async def store_result(request: StoreResultRequest, db: Session = Depends(get_db)):
-    """
-    Store prediction result manually.
-    """
-    
-    try:
-        record = AnomalyRecord(
-            anomaly_score=request.anomaly_score,
-            failure_probability=request.failure_probability,
-            log_risk=request.log_risk,
-            final_risk_score=request.final_risk_score,
-            explanation_values=request.explanation_values,
-            alert_triggered=1 if request.final_risk_score >= 0.85 else 0
-        )
-        
-        db.add(record)
-        db.commit()
-        
-        return {"status": "success", "id": record.id}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Storage failed: {str(e)}")
-
-
-@router.get("/history", response_model=HistoryResponse)
+@router.get("/history")
 async def get_history(limit: int = 100, offset: int = 0, db: Session = Depends(get_db)):
-    """
-    Retrieve historical anomaly detection records.
-    """
     
     try:
-        total = db.query(AnomalyRecord).count()
+        total = db.query(Prediction).count()
         
-        records = db.query(AnomalyRecord)\
-            .order_by(AnomalyRecord.timestamp.desc())\
+        records = db.query(Prediction)\
+            .order_by(desc(Prediction.timestamp))\
             .offset(offset)\
             .limit(limit)\
             .all()
         
         history_items = [
-            HistoryItem(
-                id=record.id,
-                timestamp=record.timestamp,
-                anomaly_score=record.anomaly_score,
-                failure_probability=record.failure_probability,
-                log_risk=record.log_risk,
-                final_risk_score=record.final_risk_score,
-                alert_triggered=bool(record.alert_triggered)
-            )
+            {
+                "id": record.id,
+                "timestamp": record.timestamp.isoformat(),
+                "anomaly_score": record.anomaly_score,
+                "failure_probability": record.failure_probability,
+                "log_risk": record.log_risk,
+                "final_risk_score": record.final_risk_score,
+                "alert_severity": record.alert_severity,
+                "alert_triggered": record.alert_severity in ["HIGH", "CRITICAL"]
+            }
             for record in records
         ]
         
-        return HistoryResponse(total=total, records=history_items)
+        return {"total": total, "records": history_items}
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve history: {str(e)}")
@@ -163,104 +128,76 @@ async def get_history(limit: int = 100, offset: int = 0, db: Session = Depends(g
 
 @router.get("/health")
 async def health_check():
-    """
-    Health check endpoint.
-    """
+    model_status = get_model_status()
     return {
         "status": "healthy",
-        "models_loaded": {
-            "lstm": inference_service.ts_detector.model is not None,
-            "gru": inference_service.gru_detector.model is not None,
-            "xgboost": inference_service.tabular_predictor.model is not None,
-            "bert": inference_service.log_classifier.model is not None
-        }
+        "models_loaded": model_status
     }
 
 
 @router.get("/metrics/summary")
-async def get_metrics_summary():
-    """
-    Get comprehensive metrics summary including confusion matrix, PR-AUC, MTBF.
-    """
+async def get_metrics_summary(db: Session = Depends(get_db)):
+    
     try:
-        summary = inference_service.metrics_aggregator.get_summary()
-        return summary
+        total_predictions = db.query(Prediction).count()
+        
+        last_24h = datetime.utcnow() - timedelta(hours=24)
+        recent_predictions = db.query(Prediction)\
+            .filter(Prediction.timestamp >= last_24h)\
+            .count()
+        
+        avg_risk = db.query(func.avg(Prediction.final_risk_score))\
+            .filter(Prediction.timestamp >= last_24h)\
+            .scalar() or 0.0
+        
+        critical_alerts = db.query(Prediction)\
+            .filter(Prediction.alert_severity == "CRITICAL")\
+            .filter(Prediction.timestamp >= last_24h)\
+            .count()
+        
+        high_alerts = db.query(Prediction)\
+            .filter(Prediction.alert_severity == "HIGH")\
+            .filter(Prediction.timestamp >= last_24h)\
+            .count()
+        
+        return {
+            "total_predictions": total_predictions,
+            "predictions_last_24h": recent_predictions,
+            "avg_risk_score": round(avg_risk, 4),
+            "critical_alerts_24h": critical_alerts,
+            "high_alerts_24h": high_alerts,
+            "alert_rate": round((critical_alerts + high_alerts) / max(recent_predictions, 1), 4)
+        }
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get metrics: {str(e)}")
 
 
-@router.get("/metrics/drift")
-async def get_drift_metrics():
-    """
-    Get drift detection metrics and status.
-    """
-    try:
-        drift_summary = inference_service.drift_monitor.get_summary()
-        return drift_summary
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get drift metrics: {str(e)}")
-
-
-@router.get("/alerts/recent")
-async def get_recent_alerts(limit: int = 50):
-    """
-    Get recent alerts with severity levels.
-    """
-    try:
-        alerts = inference_service.alert_manager.get_recent_alerts(limit)
-        stats = inference_service.alert_manager.get_alert_stats()
-        return {
-            "alerts": alerts,
-            "stats": stats
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get alerts: {str(e)}")
-
-
-@router.post("/alerts/{alert_id}/acknowledge")
-async def acknowledge_alert(alert_id: int):
-    """
-    Acknowledge a specific alert.
-    """
-    try:
-        success = inference_service.alert_manager.acknowledge_alert(alert_id)
-        if success:
-            return {"status": "success", "alert_id": alert_id}
-        else:
-            raise HTTPException(status_code=404, detail="Alert not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to acknowledge alert: {str(e)}")
-
-
 @router.get("/system/health")
-async def get_system_health():
-    """
-    Get comprehensive system health information.
-    """
+async def get_system_health(db: Session = Depends(get_db)):
+    
     try:
-        metrics = inference_service.metrics_aggregator.get_summary()
-        drift = inference_service.drift_monitor.get_summary()
-        alerts = inference_service.alert_manager.get_alert_stats()
+        model_status = get_model_status()
+        
+        total_predictions = db.query(Prediction).count()
+        last_prediction = db.query(Prediction)\
+            .order_by(desc(Prediction.timestamp))\
+            .first()
         
         return {
             "status": "operational",
             "uptime_percentage": 99.9,
             "models": {
-                "lstm_loaded": inference_service.ts_detector.model is not None,
-                "gru_loaded": inference_service.gru_detector.model is not None,
-                "xgboost_loaded": inference_service.tabular_predictor.model is not None,
-                "bert_loaded": inference_service.log_classifier.model is not None
+                "lstm_loaded": model_status.get("lstm", False),
+                "gru_loaded": model_status.get("gru", False),
+                "xgboost_loaded": model_status.get("xgboost", False),
+                "bert_loaded": model_status.get("bert", False)
             },
-            "performance": {
-                "throughput_per_sec": metrics.get('throughput_per_sec', 0),
-                "avg_latency_ms": metrics.get('latency', {}).get('mean', 0),
-                "p95_latency_ms": metrics.get('latency', {}).get('p95', 0)
-            },
-            "drift_status": {
-                "total_events": drift.get('total_drift_events', 0),
-                "active_drifts": sum(1 for d in drift.get('detectors', {}).values() if d.get('drift_detected', False))
-            },
-            "alert_summary": alerts
+            "database": {
+                "total_records": total_predictions,
+                "last_prediction": last_prediction.timestamp.isoformat() if last_prediction else None
+            }
         }
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get system health: {str(e)}")

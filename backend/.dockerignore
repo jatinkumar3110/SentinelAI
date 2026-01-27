@@ -1,4 +1,4 @@
-__pycache__/
+__pycache__
 *.pyc
 *.pyo
 *.pyd
@@ -6,42 +6,17 @@ __pycache__/
 env/
 venv/
 .venv/
-.env
-.git/
+*.env
+.git
 .gitignore
 *.md
-models/
-*.pt
-*.bin
-*.safetensors
-data/
-*.db
-logs/
-.vscode/
-.idea/
-*.log
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Database
-*.db
 *.sqlite
-*.sqlite3
-
-# Testing
-.pytest_cache/
+*.db
+.pytest_cache
 .coverage
 htmlcov/
+dist/
+build/
+*.egg-info/
 
-# Jupyter
-.ipynb_checkpoints/

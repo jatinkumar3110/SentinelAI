@@ -2,9 +2,9 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
-from app.api.websocket_routes import router as ws_router
 from app.db.database import init_db
 from app.core.config import settings
+from app.core.model_registry import load_all_models
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -12,7 +12,7 @@ app = FastAPI(
     description="Multi-Modal Anomaly Detection & Risk Intelligence Platform"
 )
 
-# CORS Configuration - Allow specific origins in production
+# CORS Configuration
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -23,7 +23,6 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix=settings.API_PREFIX)
-app.include_router(ws_router, prefix=settings.API_PREFIX)
 
 
 @app.on_event("startup")
@@ -31,6 +30,7 @@ def startup_event():
     init_db()
     settings.MODEL_DIR.mkdir(parents=True, exist_ok=True)
     settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    load_all_models()
 
 
 @app.get("/health")
