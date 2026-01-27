@@ -6,27 +6,19 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+ENV TRANSFORMERS_NO_ADVISORY_WARNINGS=1
+ENV HF_HUB_DISABLE_TELEMETRY=1
+ENV PYTHONUNBUFFERED=1
 
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
 RUN mkdir -p backend/models backend/data
-
-# Make start script executable
 RUN chmod +x start.sh
 
-EXPOSE 8000
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
 ENV MODEL_PATH=backend/models
 ENV DATA_PATH=backend/data
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')"
-
-# Start the application
 CMD ["bash", "start.sh"]
