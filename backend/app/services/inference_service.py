@@ -15,21 +15,25 @@ def run_inference(input_payload: Dict) -> Dict:
     failure_probability = 0.0
     log_risk = 0.0
     contributing_models = 0
+    effective_weights = {"timeseries": 0.0, "failure": 0.0, "log": 0.0}
     
     # Time-series inference (LSTM + GRU)
-    if input_payload.get("time_series_data") and models.get("lstm") and models.get("gru"):
+    if input_payload.get("time_series_data") and models.get("lstm"):
         ts_data = np.array(input_payload["time_series_data"], dtype=np.float32)
         ts_tensor = torch.FloatTensor(ts_data).unsqueeze(0).unsqueeze(-1)
         
         with torch.no_grad():
             lstm_recon = models["lstm"](ts_tensor)
-            gru_recon = models["gru"](ts_tensor)
-            
             lstm_error = torch.mean((ts_tensor - lstm_recon) ** 2).item()
-            gru_error = torch.mean((ts_tensor - gru_recon) ** 2).item()
-            
-            anomaly_score = float((lstm_error + gru_error) / 2)
+            anomaly_score = float(lstm_error)
+
+            if models.get("gru"):
+                gru_recon = models["gru"](ts_tensor)
+                gru_error = torch.mean((ts_tensor - gru_recon) ** 2).item()
+                anomaly_score = float((lstm_error + gru_error) / 2)
+
             contributing_models += 1
+            effective_weights["timeseries"] = 0.4
     
     # Tabular inference (XGBoost)
     if input_payload.get("tabular_features") and models.get("xgboost"):
@@ -47,6 +51,7 @@ def run_inference(input_payload: Dict) -> Dict:
         pred = models["xgboost"].predict(dmatrix)
         failure_probability = float(pred[0])
         contributing_models += 1
+        effective_weights["failure"] = 0.35
     
     # Log inference (DistilBERT)
     if input_payload.get("log_text") and models.get("bert_model") and models.get("bert_tokenizer"):
@@ -71,17 +76,18 @@ def run_inference(input_payload: Dict) -> Dict:
                 # Use the last class as the anomalous class for binary or multi-class heads.
                 log_risk = float(probs[0][-1].item())
             contributing_models += 1
+            effective_weights["log"] = 0.25
     
     # Fusion
-    weights = {"timeseries": 0.4, "failure": 0.35, "log": 0.25}
-    final_risk_score = (
-        anomaly_score * weights["timeseries"] +
-        failure_probability * weights["failure"] +
-        log_risk * weights["log"]
-    )
-
-    # Keep API contract stable for frontend even when all models are intentionally disabled.
-    if contributing_models == 0:
+    active_weight_total = sum(effective_weights.values())
+    if active_weight_total > 0:
+        final_risk_score = (
+            anomaly_score * effective_weights["timeseries"] +
+            failure_probability * effective_weights["failure"] +
+            log_risk * effective_weights["log"]
+        ) / active_weight_total
+    else:
+        # Stable fallback for cases where all enabled models are unavailable or no usable inputs were provided.
         final_risk_score = 0.2
     
     # Alert severity
