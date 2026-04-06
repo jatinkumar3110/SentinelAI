@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: sentinelai-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+      - key: API_V1_PREFIX
+        value: /api/v1
+      - key: MODEL_DIR
+        value: models
+      - key: DATA_DIR
+        value: data
+      - key: DATABASE_URL
+        value: sqlite:///./sentinelai.db
+      - key: ENABLE_LSTM
+        value: true
+      - key: ENABLE_GRU
+        value: false
+      - key: ENABLE_XGBOOST
+        value: true
+      - key: ENABLE_BERT
+        value: false
+      - key: ALLOWED_ORIGINS
+        sync: false

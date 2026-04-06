@@ -7,7 +7,7 @@ SentinelAI is a production-grade multi-modal anomaly detection platform that com
 
 ### Deployment Reality Check (Important)
 
-On low-memory instances, loading all models at startup can exceed available RAM. To support reliable DigitalOcean deployments, SentinelAI supports environment-based model toggles:
+On low-memory instances, loading all models at startup can exceed available RAM. To support reliable Render free-tier deployments, SentinelAI supports environment-based model toggles:
 
 ```bash
 ENABLE_LSTM=true
@@ -27,26 +27,26 @@ ENABLE_BERT=false
 
 This preserves the API contract while reducing cold-start and peak RAM usage.
 
-### Deployment Standard (DigitalOcean)
+### Deployment Standard (Render + Vercel)
 
-1. Backend: Deploy FastAPI on a DigitalOcean Droplet (Ubuntu 22.04, recommended 2GB RAM).
-2. Frontend: Deploy React static site on DigitalOcean App Platform.
+1. Backend: Deploy FastAPI on Render Web Service (free tier supported in lite mode).
+2. Frontend: Deploy React static site on Vercel.
 3. Runtime mode: Use lightweight model toggles first, then enable full stack after memory validation.
 
 ### Deployment Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              DigitalOcean App Platform                      │
+│                         Vercel                              │
 │              (React SPA - Static Hosting)                   │
-│      https://<your-digitalocean-app-domain>                 │
+│              https://<your-project>.vercel.app              │
 └────────────────────────┬────────────────────────────────────┘
                          │ HTTPS REST API
                          │ /api/v1/*
 ┌────────────────────────▼────────────────────────────────────┐
-│                  DigitalOcean Droplet                       │
-│          (Ubuntu 22.04 - recommended 2GB RAM)               │
-│             http://<DROPLET_IP>:8000                        │
+│                 Render Web Service                          │
+│               (Free tier, 512MB constrained)                │
+│      https://<your-render-backend>.onrender.com             │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │             FastAPI Backend                          │   │
@@ -331,7 +331,7 @@ python -m app.train.train_all
 - **Inference Latency**: <50ms (P95)
 - **Throughput**: 100+ req/sec
 
-### Resource Usage (DigitalOcean Basic Droplet)
+### Resource Usage (Render Free Tier Lite Mode)
 - **RAM**: ~800MB (all models loaded)
 - **CPU**: 1 vCPU (sufficient for inference)
 - **Disk**: ~2GB (models + data + code)
@@ -340,20 +340,20 @@ python -m app.train.train_all
 ## Security Considerations
 
 ### Backend
-- **CORS**: Configured to allow DigitalOcean frontend origin
+- **CORS**: Configured to allow Vercel frontend origin
 - **Environment Variables**: Never commit .env files
-- **Secrets**: Use DigitalOcean App Platform encrypted environment variables for frontend and backend secrets
+- **Secrets**: Use Render/Vercel environment variables for backend and frontend secrets
 
 ### Frontend
 - **API URL**: Configured via environment variable
-- **HTTPS**: DigitalOcean App Platform provides managed SSL
+- **HTTPS**: Vercel provides managed SSL for frontend
 - **Input Validation**: Client and server-side validation
 
 ## Monitoring & Logging
 
 ### System Health Check
 ```bash
-curl http://<DROPLET_IP>:8000/api/v1/system/health
+curl https://<your-render-backend>.onrender.com/api/v1/system/health
 ```
 
 Returns:
@@ -416,71 +416,55 @@ python -m app.train.train_all
 ```
 
 ### High Latency
-- Check Droplet CPU/RAM usage
-- Consider upgrading to a larger Basic Droplet plan
+- Check Render memory usage and logs
+- Consider upgrading Render plan if enabling heavier models
 - Enable model caching (already implemented)
 
 ### CORS Errors
 - Verify `VITE_API_URL` in frontend .env
 - Check FastAPI CORS middleware configuration
-- Ensure Droplet firewall allows port 8000
+- Ensure backend CORS allows Vercel domain
 
-## DigitalOcean Deployment Checklist
+## Render + Vercel Deployment Checklist
 
-1. Droplet plan has enough RAM for selected model toggles.
+1. Render service is running in lite model mode for free-tier memory limits.
 2. Backend environment variables are configured (`MODEL_DIR`, `DATA_DIR`, `ENABLE_*`, `DATABASE_URL`).
 3. Backend responds at `/health` and `/api/v1/system/health`.
 4. Frontend environment variable `VITE_API_URL` points to backend `/api/v1`.
-5. `ALLOWED_ORIGINS` includes DigitalOcean App Platform frontend domain.
-6. Gunicorn/systemd is active and restarts automatically.
+5. `ALLOWED_ORIGINS` includes Vercel frontend domain.
+6. Render health check `/health` is passing continuously.
 7. At least one prediction request is persisted and retrievable from `/api/v1/history`.
 8. Monitoring and backups are enabled for production workloads.
 
-## App Spec Profiles
+## Deployment Profiles
 
-Two DigitalOcean App Platform spec profiles are provided:
+Two deployment profiles are supported in this repository:
 
-1. `.do/app.yaml`
-- Minimal profile for quick deploy/demo
+1. `render.yaml` (current default)
+- Backend on Render free web service
 - Lightweight model toggles enabled by default
-- Lowest-cost profile for trial/free-credit usage
-- Uses SQLite (no managed PostgreSQL cost)
+- SQLite for demo persistence
 
-2. `.do/app.prod.yaml`
-- Production profile with managed PostgreSQL binding
-- Backend health checks on `/health`
-- Autoscaling limits configured for backend service
-- Explicit runtime/build-time environment scopes
-
-Before deploying the production profile, replace placeholders:
-
-- `REPLACE_WITH_BACKEND_DOMAIN`
-- `REPLACE_WITH_FRONTEND_DOMAIN`
-
-For `.do/app.yaml` (free-tier/trial profile), replace these placeholders as well:
-
-- `REPLACE_WITH_BACKEND_DOMAIN`
-- `REPLACE_WITH_FRONTEND_DOMAIN`
-
-Cost note:
-- DigitalOcean backend hosting is generally not permanently free; this profile is optimized for minimal spend during trial/free-credit periods.
+2. Vercel frontend deployment
+- Frontend hosted from `frontend/`
+- API base URL configured via `VITE_API_URL`
 
 ## Scaling Considerations
 
 ### Horizontal Scaling
-- Deploy multiple Droplets behind DigitalOcean Load Balancer
-- Use DigitalOcean Managed PostgreSQL instead of SQLite
+- Deploy multiple backend instances on Render paid plans
+- Use managed PostgreSQL when moving beyond demo persistence
 - Implement Redis for model caching
 
 ### Vertical Scaling
-- Upgrade Droplet size (CPU/RAM)
+- Upgrade Render instance size (CPU/RAM)
 - Move heavy NLP inference to a separate model service if required
 
 ### Production Optimizations
 - Use Gunicorn with multiple workers
 - Enable HTTP/2 at reverse proxy level
-- Use DigitalOcean CDN for static assets
-- Use DigitalOcean Spaces for model artifact storage
+- Use Vercel CDN for static frontend assets
+- Use external object storage for model artifact storage
 - Add periodic backups and monitoring alerts
 
 ## License

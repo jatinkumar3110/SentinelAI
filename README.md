@@ -2,7 +2,7 @@
 
 Multi-Modal Anomaly Detection & Risk Intelligence Platform
 
-Live deployment instructions are available in LIVE-DEPLOYMENT-GUIDE.md.
+Live deployment instructions are available in LIVE-DEPLOYMENT-GUIDE.md (Render backend + Vercel frontend).
 
 Production-grade system for detecting anomalies from time-series sensor data, tabular telemetry, and system logs using deep learning and gradient boosting models.
 
@@ -65,98 +65,50 @@ npm run dev
 
 Frontend runs at: **http://localhost:3000**
 
-### 4. Production Deployment (DigitalOcean)
+### 4. Production Deployment (Render + Vercel)
 
-#### Backend on DigitalOcean Droplet (Ubuntu 22.04)
-
-```bash
-# 1. Create Droplet (recommended: Basic 2GB RAM)
-# 2. SSH into Droplet
-ssh root@<DROPLET_IP>
-
-# 3. Install dependencies
-apt update && apt upgrade -y
-apt install -y python3-pip python3-venv git nginx
-
-# 4. Clone repository
-git clone <your-repo-url>
-cd "Resume Project 1"/backend
-
-# 5. Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# 6. Install requirements
-pip install -r requirements.txt
-
-# 7. Configure environment
-cp .env.example .env
-nano .env
-# Set at minimum:
-# MODEL_DIR=./models
-# DATA_DIR=./data
-# PORT=8000
-# ENABLE_LSTM=true
-# ENABLE_GRU=false
-# ENABLE_XGBOOST=true
-# ENABLE_BERT=false
-
-# 8. Start API with Gunicorn + Uvicorn worker
-venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 1
-```
-
-For persistent production process, create a systemd service.
+#### Backend on Render (Free Tier)
 
 ```bash
-cat << 'EOF' > /etc/systemd/system/sentinelai.service
-[Unit]
-Description=SentinelAI Backend
-After=network.target
+# 1. Push latest code to GitHub
+git add .
+git commit -m "Prepare Render deployment"
+git push origin main
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/root/Resume Project 1/backend
-Environment="PATH=/root/Resume Project 1/backend/venv/bin"
-ExecStart=/root/Resume Project 1/backend/venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 1
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable sentinelai
-systemctl restart sentinelai
-systemctl status sentinelai
+# 2. In Render dashboard: New + -> Blueprint
+# 3. Select repository; Render uses render.yaml
+# 4. Verify backend env vars on Render:
+#    ENABLE_LSTM=true
+#    ENABLE_GRU=false
+#    ENABLE_XGBOOST=true
+#    ENABLE_BERT=false
 ```
 
 Backend URL:
 
 ```text
-http://<DROPLET_IP>:8000
+https://<your-render-backend>.onrender.com
 ```
 
-#### Frontend on DigitalOcean App Platform (Static Site)
+#### Frontend on Vercel
 
 ```bash
 cd frontend
-cp .env.example .env
-echo "VITE_API_URL=http://<DROPLET_IP>:8000/api/v1" > .env
 npm install
 npm run build
 ```
 
-Then in DigitalOcean App Platform:
-- Create Static Site from repository.
-- Build command: npm run build
-- Output directory: dist
-- Environment variable: VITE_API_URL=http://<DROPLET_IP>:8000/api/v1
+Then in Vercel:
+- Import repository.
+- Set Root Directory: `frontend`.
+- Build command: `npm run build`.
+- Output directory: `dist`.
+- Environment variable: `VITE_API_URL=https://<your-render-backend>.onrender.com/api/v1`.
 
 Frontend URL:
 
 ```text
-https://<your-digitalocean-app-domain>
+https://<your-project>.vercel.app
 ```
 
 ## Architecture
@@ -464,49 +416,17 @@ Frontend runs at: http://localhost:3000
 
 ## Deployment
 
-### Backend → DigitalOcean Droplet
+### Backend → Render
 
-Deploy FastAPI backend using systemd + Gunicorn on Ubuntu 22.04.
+Deploy FastAPI backend from `render.yaml` using Render Blueprint.
 
-### Frontend → DigitalOcean App Platform
+### Frontend → Vercel
 
-Deploy React frontend as a static site and set environment variable:
-
-```text
-VITE_API_URL=http://<DROPLET_IP>:8000/api/v1
-```
-
-### One-Click App Spec (DigitalOcean)
-
-Use the included App Platform spec file:
+Deploy React frontend as a static site with environment variable:
 
 ```text
-.do/app.yaml
+VITE_API_URL=https://<your-render-backend>.onrender.com/api/v1
 ```
-
-This provisions:
-- A backend web service from `backend/Dockerfile`
-- A frontend static site from `frontend/`
-- Required environment variable wiring (`VITE_API_URL`)
-
-Free-tier/trial-credit profile (default):
-- Single backend instance (`basic-xxs`)
-- SQLite database (no managed DB cost)
-- Lightweight model mode (`ENABLE_BERT=false`, `ENABLE_GRU=false`)
-
-Note: DigitalOcean backend is usually credit-based, not permanently free. This profile minimizes cost for trial/free-credit periods.
-
-For production setup with managed PostgreSQL, health checks, and autoscaling limits, use:
-
-```text
-.do/app.prod.yaml
-```
-
-Production spec notes:
-- Binds backend `DATABASE_URL` to DigitalOcean managed PostgreSQL
-- Enables backend health checks at `/health`
-- Sets autoscaling range from 1 to 2 backend instances
-- Uses safer backend process command with Gunicorn timeout tuning
 
 ### Deployment Checklist (Interview/Demo Ready)
 
@@ -515,14 +435,9 @@ Production spec notes:
 3. Lightweight mode is enabled first (`ENABLE_BERT=false`, `ENABLE_GRU=false`) on low-memory plans.
 4. `ALLOWED_ORIGINS` includes your frontend domain.
 5. One successful prediction is stored and visible via `/api/v1/history`.
-6. Systemd service is enabled and auto-restarts on reboot.
+6. Render backend deploy is healthy and serving `/health`.
 7. Basic monitoring is active (CPU, RAM, response latency).
-8. For App Platform production spec, replace both placeholders:
-  - `REPLACE_WITH_BACKEND_DOMAIN`
-  - `REPLACE_WITH_FRONTEND_DOMAIN`
-9. For free-tier/trial profile (`.do/app.yaml`), also replace:
-  - `REPLACE_WITH_BACKEND_DOMAIN`
-  - `REPLACE_WITH_FRONTEND_DOMAIN`
+8. `ALLOWED_ORIGINS` in backend matches Vercel frontend domain.
 
 ## Project Structure
 
@@ -590,9 +505,7 @@ frontend/
 ├── tailwind.config.js
 └── vite.config.js
 
-.do/
-├── app.yaml
-└── app.prod.yaml
+render.yaml
 ```
 
 ## Features
