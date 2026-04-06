@@ -6,6 +6,16 @@ from typing import Dict, Optional
 from app.core.model_registry import get_models, get_model_status
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(float(value), 1.0))
+
+
+def _normalize_reconstruction_error(error: float) -> float:
+    # Squashes unbounded reconstruction errors to [0,1) while preserving order.
+    e = max(0.0, float(error))
+    return e / (1.0 + e)
+
+
 def run_inference(input_payload: Dict) -> Dict:
     start_time = time.time()
     
@@ -16,6 +26,7 @@ def run_inference(input_payload: Dict) -> Dict:
     log_risk = 0.0
     contributing_models = 0
     effective_weights = {"timeseries": 0.0, "failure": 0.0, "log": 0.0}
+    modalities_used = {"timeseries": False, "tabular": False, "logs": False}
     
     # Time-series inference (LSTM + GRU)
     if input_payload.get("time_series_data") and models.get("lstm"):
@@ -25,15 +36,16 @@ def run_inference(input_payload: Dict) -> Dict:
         with torch.no_grad():
             lstm_recon = models["lstm"](ts_tensor)
             lstm_error = torch.mean((ts_tensor - lstm_recon) ** 2).item()
-            anomaly_score = float(lstm_error)
+            anomaly_score = _normalize_reconstruction_error(lstm_error)
 
             if models.get("gru"):
                 gru_recon = models["gru"](ts_tensor)
                 gru_error = torch.mean((ts_tensor - gru_recon) ** 2).item()
-                anomaly_score = float((lstm_error + gru_error) / 2)
+                anomaly_score = _normalize_reconstruction_error((lstm_error + gru_error) / 2)
 
             contributing_models += 1
             effective_weights["timeseries"] = 0.4
+            modalities_used["timeseries"] = True
     
     # Tabular inference (XGBoost)
     if input_payload.get("tabular_features") and models.get("xgboost"):
@@ -49,9 +61,10 @@ def run_inference(input_payload: Dict) -> Dict:
         
         dmatrix = xgb.DMatrix(feature_array)
         pred = models["xgboost"].predict(dmatrix)
-        failure_probability = float(pred[0])
+        failure_probability = _clamp01(pred[0])
         contributing_models += 1
         effective_weights["failure"] = 0.35
+        modalities_used["tabular"] = True
     
     # Log inference (DistilBERT)
     if input_payload.get("log_text") and models.get("bert_model") and models.get("bert_tokenizer"):
@@ -70,13 +83,14 @@ def run_inference(input_payload: Dict) -> Dict:
             logits = outputs.logits
             num_labels = logits.shape[-1]
             if num_labels == 1:
-                log_risk = float(torch.sigmoid(logits[0][0]).item())
+                log_risk = _clamp01(torch.sigmoid(logits[0][0]).item())
             else:
                 probs = torch.softmax(logits, dim=-1)
                 # Use the last class as the anomalous class for binary or multi-class heads.
-                log_risk = float(probs[0][-1].item())
+                log_risk = _clamp01(probs[0][-1].item())
             contributing_models += 1
             effective_weights["log"] = 0.25
+            modalities_used["logs"] = True
     
     # Fusion
     active_weight_total = sum(effective_weights.values())
@@ -89,6 +103,11 @@ def run_inference(input_payload: Dict) -> Dict:
     else:
         # Stable fallback for cases where all enabled models are unavailable or no usable inputs were provided.
         final_risk_score = 0.2
+
+    anomaly_score = _clamp01(anomaly_score)
+    failure_probability = _clamp01(failure_probability)
+    log_risk = _clamp01(log_risk)
+    final_risk_score = _clamp01(final_risk_score)
     
     # Alert severity
     if final_risk_score >= 0.85:
@@ -108,7 +127,8 @@ def run_inference(input_payload: Dict) -> Dict:
         "log_risk": round(log_risk, 4),
         "final_risk_score": round(final_risk_score, 4),
         "alert_severity": alert_severity,
-        "inference_latency_ms": round(latency_ms, 2)
+        "inference_latency_ms": round(latency_ms, 2),
+        "modalities_used": modalities_used
     }
 
 

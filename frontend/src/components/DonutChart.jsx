@@ -4,10 +4,14 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recha
 const DonutChart = ({ data, title }) => {
   // Ensure data is valid and has required structure
   const validData = data && Array.isArray(data) && data.length > 0 
-    ? data.filter(item => item && typeof item.value === 'number' && item.value > 0)
+    ? data
+        .filter(item => item && typeof item.value === 'number' && Number.isFinite(item.value))
+        .map(item => ({ ...item, value: Math.max(0, Math.min(item.value, 100)) }))
     : [];
 
-  if (validData.length === 0) {
+  const totalValue = validData.reduce((sum, item) => sum + item.value, 0);
+
+  if (validData.length === 0 || totalValue <= 0) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center">
         <h3 className="text-white text-lg font-semibold mb-6 text-center">{title}</h3>
@@ -69,14 +73,14 @@ const DonutChart = ({ data, title }) => {
                 borderRadius: '8px',
                 color: '#fff'
               }}
-              formatter={(value) => `${value.toFixed(2)}%`}
+              formatter={(value) => `${(Number(value) || 0).toFixed(2)}%`}
             />
             <Legend 
               wrapperStyle={{ color: '#999' }}
               verticalAlign="bottom"
               formatter={(value, entry) => (
                 <span style={{ color: '#fff' }}>
-                  {entry.payload.label || value}: {entry.payload.value.toFixed(2)}%
+                  {entry?.payload?.label || value}: {(Number(entry?.payload?.value) || 0).toFixed(2)}%
                 </span>
               )}
             />

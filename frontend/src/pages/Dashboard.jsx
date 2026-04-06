@@ -9,6 +9,8 @@ import DonutChart from '../components/DonutChart';
 import LoadingOverlay from '../components/LoadingOverlay';
 import InfoPanel from '../components/InfoPanel';
 
+const clamp01 = (value) => Math.max(0, Math.min(Number(value) || 0, 1));
+
 const Dashboard = () => {
   const [predictionResult, setPredictionResult] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -22,12 +24,13 @@ const Dashboard = () => {
     setPredictionResult(result);
   };
 
-  const finalRisk = predictionResult?.final_risk_score || 0;
-  const anomalyScore = predictionResult?.anomaly_score || 0;
-  const failureProb = predictionResult?.failure_probability || 0;
-  const logRisk = predictionResult?.log_risk || 0;
+  const finalRisk = clamp01(predictionResult?.final_risk_score);
+  const anomalyScore = clamp01(predictionResult?.anomaly_score);
+  const failureProb = clamp01(predictionResult?.failure_probability);
+  const logRisk = clamp01(predictionResult?.log_risk);
   const alertTriggered = predictionResult?.alert_triggered || false;
   const latency = predictionResult?.inference_latency_ms || 0;
+  const modalitiesUsed = predictionResult?.modalities_used || { timeseries: false, tabular: false, logs: false };
 
   // Prepare donut chart data
   const donutData = predictionResult ? [
@@ -134,6 +137,22 @@ const Dashboard = () => {
                 data={donutData}
                 title="Risk Breakdown"
               />
+            </div>
+
+            {/* Model Contribution Status */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-gray-300 mb-3">Model Contribution</h4>
+              <div className="flex flex-wrap gap-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${modalitiesUsed.timeseries ? 'bg-blue-500/10 text-blue-300 border-blue-500/40' : 'bg-gray-500/10 text-gray-400 border-gray-500/30'}`}>
+                  Time-Series {modalitiesUsed.timeseries ? 'Active' : 'Inactive'}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${modalitiesUsed.tabular ? 'bg-orange-500/10 text-orange-300 border-orange-500/40' : 'bg-gray-500/10 text-gray-400 border-gray-500/30'}`}>
+                  Tabular {modalitiesUsed.tabular ? 'Active' : 'Inactive'}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${modalitiesUsed.logs ? 'bg-purple-500/10 text-purple-300 border-purple-500/40' : 'bg-gray-500/10 text-gray-400 border-gray-500/30'}`}>
+                  Logs {modalitiesUsed.logs ? 'Active' : 'Inactive'}
+                </span>
+              </div>
             </div>
 
             {/* Alert Status */}

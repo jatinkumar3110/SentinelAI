@@ -87,7 +87,12 @@ async def predict_anomaly(request: PredictionRequest, db: Session = Depends(get_
             "final_risk_score": result['final_risk_score'],
             "alert_severity": result['alert_severity'],
             "alert_triggered": result['alert_severity'] in ["HIGH", "CRITICAL"],
-            "inference_latency_ms": result['inference_latency_ms']
+            "inference_latency_ms": result['inference_latency_ms'],
+            "modalities_used": result.get('modalities_used', {
+                "timeseries": False,
+                "tabular": False,
+                "logs": False
+            })
         }
     
     except Exception as e:

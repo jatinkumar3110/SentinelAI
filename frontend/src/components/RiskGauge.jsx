@@ -2,13 +2,14 @@ import React from 'react';
 import { motion } from 'framer-motion';
 
 const RiskGauge = ({ value = 0, title = "Risk Score" }) => {
-  const percentage = Math.min(value * 100, 100);
+  const clampedValue = Math.max(0, Math.min(Number(value) || 0, 1));
+  const percentage = clampedValue * 100;
   const rotation = (percentage / 100) * 180 - 90;
   
   const getColor = () => {
-    if (value < 0.3) return '#10b981';
-    if (value < 0.6) return '#f59e0b';
-    if (value < 0.85) return '#f97316';
+    if (clampedValue < 0.3) return '#10b981';
+    if (clampedValue < 0.6) return '#f59e0b';
+    if (clampedValue < 0.85) return '#f97316';
     return '#ef4444';
   };
 
@@ -54,7 +55,7 @@ const RiskGauge = ({ value = 0, title = "Risk Score" }) => {
         </div>
         <div className="text-center mt-2">
           <span className="text-5xl font-bold" style={{ color: getColor() }}>
-            {(value * 100).toFixed(1)}%
+            {(clampedValue * 100).toFixed(1)}%
           </span>
         </div>
       </div>
