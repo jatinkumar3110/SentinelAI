@@ -14,6 +14,7 @@ def run_inference(input_payload: Dict) -> Dict:
     anomaly_score = 0.0
     failure_probability = 0.0
     log_risk = 0.0
+    contributing_models = 0
     
     # Time-series inference (LSTM + GRU)
     if input_payload.get("time_series_data") and models.get("lstm") and models.get("gru"):
@@ -28,21 +29,24 @@ def run_inference(input_payload: Dict) -> Dict:
             gru_error = torch.mean((ts_tensor - gru_recon) ** 2).item()
             
             anomaly_score = float((lstm_error + gru_error) / 2)
+            contributing_models += 1
     
     # Tabular inference (XGBoost)
     if input_payload.get("tabular_features") and models.get("xgboost"):
         features = input_payload["tabular_features"]
         feature_array = np.array([[
-            features.get("cpu_usage", 0),
-            features.get("memory_usage", 0),
-            features.get("disk_io", 0),
-            features.get("network_throughput", 0),
-            features.get("request_latency", 0)
+            features.get("temperature", 0),
+            features.get("pressure", 0),
+            features.get("vibration", 0),
+            features.get("rotation_speed", 0),
+            features.get("power_consumption", 0),
+            features.get("operating_hours", 0)
         ]], dtype=np.float32)
         
         dmatrix = xgb.DMatrix(feature_array)
         pred = models["xgboost"].predict(dmatrix)
         failure_probability = float(pred[0])
+        contributing_models += 1
     
     # Log inference (DistilBERT)
     if input_payload.get("log_text") and models.get("bert_model") and models.get("bert_tokenizer"):
@@ -59,8 +63,14 @@ def run_inference(input_payload: Dict) -> Dict:
         with torch.no_grad():
             outputs = models["bert_model"](**inputs)
             logits = outputs.logits
-            probs = torch.softmax(logits, dim=-1)
-            log_risk = float(probs[0][2].item())
+            num_labels = logits.shape[-1]
+            if num_labels == 1:
+                log_risk = float(torch.sigmoid(logits[0][0]).item())
+            else:
+                probs = torch.softmax(logits, dim=-1)
+                # Use the last class as the anomalous class for binary or multi-class heads.
+                log_risk = float(probs[0][-1].item())
+            contributing_models += 1
     
     # Fusion
     weights = {"timeseries": 0.4, "failure": 0.35, "log": 0.25}
@@ -69,6 +79,10 @@ def run_inference(input_payload: Dict) -> Dict:
         failure_probability * weights["failure"] +
         log_risk * weights["log"]
     )
+
+    # Keep API contract stable for frontend even when all models are intentionally disabled.
+    if contributing_models == 0:
+        final_risk_score = 0.2
     
     # Alert severity
     if final_risk_score >= 0.85:

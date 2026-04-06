@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Server, Cpu, Activity, Zap, Database, AlertCircle } from 'lucide-react';
-import { checkHealth } from '../api/client';
+import { getSystemHealth } from '../api/client';
 
 const SystemInfo = () => {
   const [systemHealth, setSystemHealth] = useState(null);
@@ -15,8 +15,7 @@ const SystemInfo = () => {
 
   const fetchSystemHealth = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/v1/system/health');
-      const data = await response.json();
+      const data = await getSystemHealth();
       setSystemHealth(data);
     } catch (error) {
       console.error('Failed to fetch system health:', error);

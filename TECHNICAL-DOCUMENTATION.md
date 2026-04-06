@@ -5,20 +5,48 @@
 ### Overview
 SentinelAI is a production-grade multi-modal anomaly detection platform that combines deep learning autoencoders, gradient boosting, and transformer models to detect anomalies across time-series sensor data, tabular telemetry features, and system logs.
 
+### Deployment Reality Check (Important)
+
+On low-memory instances, loading all models at startup can exceed available RAM. To support reliable DigitalOcean deployments, SentinelAI supports environment-based model toggles:
+
+```bash
+ENABLE_LSTM=true
+ENABLE_GRU=true
+ENABLE_XGBOOST=true
+ENABLE_BERT=true
+```
+
+For a lightweight demo on low-memory instances, disable heavy components (especially BERT and one of the sequence models):
+
+```bash
+ENABLE_LSTM=true
+ENABLE_GRU=false
+ENABLE_XGBOOST=true
+ENABLE_BERT=false
+```
+
+This preserves the API contract while reducing cold-start and peak RAM usage.
+
+### Deployment Standard (DigitalOcean)
+
+1. Backend: Deploy FastAPI on a DigitalOcean Droplet (Ubuntu 22.04, recommended 2GB RAM).
+2. Frontend: Deploy React static site on DigitalOcean App Platform.
+3. Runtime mode: Use lightweight model toggles first, then enable full stack after memory validation.
+
 ### Deployment Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Netlify CDN                             │
-│            (React SPA - Static Hosting)                     │
-│         https://<your-app>.netlify.app                      │
+│              DigitalOcean App Platform                      │
+│              (React SPA - Static Hosting)                   │
+│      https://<your-digitalocean-app-domain>                 │
 └────────────────────────┬────────────────────────────────────┘
                          │ HTTPS REST API
                          │ /api/v1/*
 ┌────────────────────────▼────────────────────────────────────┐
-│                  AWS EC2 Free Tier                          │
-│              (t2.micro - Ubuntu 22.04)                      │
-│          http://<EC2_PUBLIC_IP>:8000                        │
+│                  DigitalOcean Droplet                       │
+│          (Ubuntu 22.04 - recommended 2GB RAM)               │
+│             http://<DROPLET_IP>:8000                        │
 │                                                             │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │             FastAPI Backend                          │   │
@@ -152,12 +180,16 @@ Combines scores from all models with weighted ensemble:
 
 Environment variables:
 ```bash
-MODEL_PATH=backend/models        # ML model directory
-DATA_PATH=backend/data          # Training data cache
+MODEL_DIR=./models              # ML model directory
+DATA_DIR=./data                 # Training data cache
 DATABASE_URL=sqlite:///./sentinelai.db
 PORT=8000
 HOST=0.0.0.0
 API_V1_PREFIX=/api/v1
+ENABLE_LSTM=true
+ENABLE_GRU=true
+ENABLE_XGBOOST=true
+ENABLE_BERT=true
 ```
 
 ## Frontend Components
@@ -299,7 +331,7 @@ python -m app.train.train_all
 - **Inference Latency**: <50ms (P95)
 - **Throughput**: 100+ req/sec
 
-### Resource Usage (AWS EC2 t2.micro)
+### Resource Usage (DigitalOcean Basic Droplet)
 - **RAM**: ~800MB (all models loaded)
 - **CPU**: 1 vCPU (sufficient for inference)
 - **Disk**: ~2GB (models + data + code)
@@ -308,20 +340,20 @@ python -m app.train.train_all
 ## Security Considerations
 
 ### Backend
-- **CORS**: Configured to allow Netlify origin
+- **CORS**: Configured to allow DigitalOcean frontend origin
 - **Environment Variables**: Never commit .env files
-- **Secrets**: Use AWS Secrets Manager for production credentials
+- **Secrets**: Use DigitalOcean App Platform encrypted environment variables for frontend and backend secrets
 
 ### Frontend
 - **API URL**: Configured via environment variable
-- **HTTPS**: Netlify provides free SSL
+- **HTTPS**: DigitalOcean App Platform provides managed SSL
 - **Input Validation**: Client and server-side validation
 
 ## Monitoring & Logging
 
 ### System Health Check
 ```bash
-curl http://<EC2_PUBLIC_IP>:8000/api/v1/system/health
+curl http://<DROPLET_IP>:8000/api/v1/system/health
 ```
 
 Returns:
@@ -384,32 +416,72 @@ python -m app.train.train_all
 ```
 
 ### High Latency
-- Check EC2 instance CPU/RAM usage
-- Consider upgrading to t2.small (2GB RAM)
+- Check Droplet CPU/RAM usage
+- Consider upgrading to a larger Basic Droplet plan
 - Enable model caching (already implemented)
 
 ### CORS Errors
 - Verify `VITE_API_URL` in frontend .env
 - Check FastAPI CORS middleware configuration
-- Ensure EC2 security group allows port 8000
+- Ensure Droplet firewall allows port 8000
+
+## DigitalOcean Deployment Checklist
+
+1. Droplet plan has enough RAM for selected model toggles.
+2. Backend environment variables are configured (`MODEL_DIR`, `DATA_DIR`, `ENABLE_*`, `DATABASE_URL`).
+3. Backend responds at `/health` and `/api/v1/system/health`.
+4. Frontend environment variable `VITE_API_URL` points to backend `/api/v1`.
+5. `ALLOWED_ORIGINS` includes DigitalOcean App Platform frontend domain.
+6. Gunicorn/systemd is active and restarts automatically.
+7. At least one prediction request is persisted and retrievable from `/api/v1/history`.
+8. Monitoring and backups are enabled for production workloads.
+
+## App Spec Profiles
+
+Two DigitalOcean App Platform spec profiles are provided:
+
+1. `.do/app.yaml`
+- Minimal profile for quick deploy/demo
+- Lightweight model toggles enabled by default
+- Lowest-cost profile for trial/free-credit usage
+- Uses SQLite (no managed PostgreSQL cost)
+
+2. `.do/app.prod.yaml`
+- Production profile with managed PostgreSQL binding
+- Backend health checks on `/health`
+- Autoscaling limits configured for backend service
+- Explicit runtime/build-time environment scopes
+
+Before deploying the production profile, replace placeholders:
+
+- `REPLACE_WITH_BACKEND_DOMAIN`
+- `REPLACE_WITH_FRONTEND_DOMAIN`
+
+For `.do/app.yaml` (free-tier/trial profile), replace these placeholders as well:
+
+- `REPLACE_WITH_BACKEND_DOMAIN`
+- `REPLACE_WITH_FRONTEND_DOMAIN`
+
+Cost note:
+- DigitalOcean backend hosting is generally not permanently free; this profile is optimized for minimal spend during trial/free-credit periods.
 
 ## Scaling Considerations
 
 ### Horizontal Scaling
-- Deploy multiple EC2 instances behind AWS ALB
-- Use RDS (PostgreSQL) instead of SQLite
+- Deploy multiple Droplets behind DigitalOcean Load Balancer
+- Use DigitalOcean Managed PostgreSQL instead of SQLite
 - Implement Redis for model caching
 
 ### Vertical Scaling
-- Upgrade to t3.medium (4GB RAM)
-- Enable GPU (g4dn.xlarge) for faster inference
+- Upgrade Droplet size (CPU/RAM)
+- Move heavy NLP inference to a separate model service if required
 
 ### Production Optimizations
 - Use Gunicorn with multiple workers
-- Enable HTTP/2 on ALB
-- Implement CloudFront CDN for frontend
-- Use S3 for model storage
-- Enable auto-scaling groups
+- Enable HTTP/2 at reverse proxy level
+- Use DigitalOcean CDN for static assets
+- Use DigitalOcean Spaces for model artifact storage
+- Add periodic backups and monitoring alerts
 
 ## License
 MIT

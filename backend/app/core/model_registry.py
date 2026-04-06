@@ -2,13 +2,19 @@ import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import xgboost as xgb
-import pickle
 import os
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _is_enabled(env_name: str, default: bool = True) -> bool:
+    raw = os.getenv(env_name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class LSTMAutoencoder(nn.Module):
@@ -55,32 +61,58 @@ class ModelRegistry:
     
     def load_all_models(self):
         model_dir = Path(os.getenv("MODEL_DIR", "models"))
+        enable_lstm = _is_enabled("ENABLE_LSTM", True)
+        enable_gru = _is_enabled("ENABLE_GRU", True)
+        enable_xgboost = _is_enabled("ENABLE_XGBOOST", True)
+        enable_bert = _is_enabled("ENABLE_BERT", True)
         
-        try:
-            self._load_lstm(model_dir)
-        except Exception as e:
-            logger.warning(f"LSTM not loaded: {e}")
+        if enable_lstm:
+            try:
+                self._load_lstm(model_dir)
+            except Exception as e:
+                logger.warning(f"LSTM not loaded: {e}")
+        else:
+            logger.info("LSTM disabled via ENABLE_LSTM")
             
-        try:
-            self._load_gru(model_dir)
-        except Exception as e:
-            logger.warning(f"GRU not loaded: {e}")
+        if enable_gru:
+            try:
+                self._load_gru(model_dir)
+            except Exception as e:
+                logger.warning(f"GRU not loaded: {e}")
+        else:
+            logger.info("GRU disabled via ENABLE_GRU")
             
-        try:
-            self._load_xgboost(model_dir)
-        except Exception as e:
-            logger.warning(f"XGBoost not loaded: {e}")
+        if enable_xgboost:
+            try:
+                self._load_xgboost(model_dir)
+            except Exception as e:
+                logger.warning(f"XGBoost not loaded: {e}")
+        else:
+            logger.info("XGBoost disabled via ENABLE_XGBOOST")
             
-        try:
-            self._load_bert(model_dir)
-        except Exception as e:
-            logger.warning(f"BERT not loaded: {e}")
+        if enable_bert:
+            try:
+                self._load_bert(model_dir)
+            except Exception as e:
+                logger.warning(f"BERT not loaded: {e}")
+        else:
+            logger.info("BERT disabled via ENABLE_BERT")
+
+    def _load_torch_checkpoint(self, model: nn.Module, model_path: Path):
+        checkpoint = torch.load(model_path, map_location="cpu")
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            model.load_state_dict(checkpoint)
     
     def _load_lstm(self, model_dir: Path):
-        lstm_path = model_dir / "lstm_autoencoder.pt"
+        lstm_path = model_dir / "lstm_autoencoder.pth"
+        if not lstm_path.exists():
+            lstm_path = model_dir / "lstm_autoencoder.pt"
+
         if lstm_path.exists():
             self.models["lstm"] = LSTMAutoencoder()
-            self.models["lstm"].load_state_dict(torch.load(lstm_path, map_location="cpu"))
+            self._load_torch_checkpoint(self.models["lstm"], lstm_path)
             self.models["lstm"].eval()
             self.model_loaded["lstm"] = True
             logger.info("LSTM loaded")
@@ -91,10 +123,13 @@ class ModelRegistry:
             logger.info("LSTM initialized (no weights)")
     
     def _load_gru(self, model_dir: Path):
-        gru_path = model_dir / "gru_autoencoder.pt"
+        gru_path = model_dir / "gru_autoencoder.pth"
+        if not gru_path.exists():
+            gru_path = model_dir / "gru_autoencoder.pt"
+
         if gru_path.exists():
             self.models["gru"] = GRUAutoencoder()
-            self.models["gru"].load_state_dict(torch.load(gru_path, map_location="cpu"))
+            self._load_torch_checkpoint(self.models["gru"], gru_path)
             self.models["gru"].eval()
             self.model_loaded["gru"] = True
             logger.info("GRU loaded")
@@ -124,17 +159,7 @@ class ModelRegistry:
             self.model_loaded["bert"] = True
             logger.info("DistilBERT loaded")
         else:
-            try:
-                self.models["bert_tokenizer"] = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-                self.models["bert_model"] = AutoModelForSequenceClassification.from_pretrained(
-                    "distilbert-base-uncased", 
-                    num_labels=3
-                )
-                self.models["bert_model"].eval()
-                self.model_loaded["bert"] = True
-                logger.info("DistilBERT loaded (base)")
-            except Exception as e:
-                logger.warning(f"DistilBERT not available: {e}")
+            logger.warning("DistilBERT directory not found; skipping BERT load")
     
     def get_models(self) -> Dict[str, Any]:
         return self.models

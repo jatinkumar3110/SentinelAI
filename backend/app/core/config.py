@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./sentinelai.db")
     
-    # Model paths - load from local disk
-    MODEL_DIR: Path = Path(os.getenv("MODEL_PATH", "backend/models"))
-    DATA_DIR: Path = Path(os.getenv("DATA_PATH", "backend/data"))
+    # Model/data paths: prefer MODEL_DIR + DATA_DIR, keep MODEL_PATH + DATA_PATH for backward compatibility
+    MODEL_DIR: Path = Path(os.getenv("MODEL_DIR", os.getenv("MODEL_PATH", "models")))
+    DATA_DIR: Path = Path(os.getenv("DATA_DIR", os.getenv("DATA_PATH", "data")))
     
     # Model paths
     LSTM_MODEL_PATH: Path = MODEL_DIR / "lstm_autoencoder.pth"

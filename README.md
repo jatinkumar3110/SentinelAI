@@ -2,6 +2,8 @@
 
 Multi-Modal Anomaly Detection & Risk Intelligence Platform
 
+Live deployment instructions are available in LIVE-DEPLOYMENT-GUIDE.md.
+
 Production-grade system for detecting anomalies from time-series sensor data, tabular telemetry, and system logs using deep learning and gradient boosting models.
 
 ## ✨ Features
@@ -63,22 +65,22 @@ npm run dev
 
 Frontend runs at: **http://localhost:3000**
 
-### 4. Production Deployment
+### 4. Production Deployment (DigitalOcean)
 
-#### Backend on AWS EC2 Free Tier
+#### Backend on DigitalOcean Droplet (Ubuntu 22.04)
 
 ```bash
-# 1. Launch Ubuntu instance (t2.micro)
-# 2. SSH into instance
-ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
+# 1. Create Droplet (recommended: Basic 2GB RAM)
+# 2. SSH into Droplet
+ssh root@<DROPLET_IP>
 
 # 3. Install dependencies
-sudo apt update && sudo apt upgrade -y
-sudo apt install python3-pip python3-venv git -y
+apt update && apt upgrade -y
+apt install -y python3-pip python3-venv git nginx
 
 # 4. Clone repository
 git clone <your-repo-url>
-cd Resume\ Project\ 1/backend
+cd "Resume Project 1"/backend
 
 # 5. Create virtual environment
 python3 -m venv venv
@@ -89,72 +91,73 @@ pip install -r requirements.txt
 
 # 7. Configure environment
 cp .env.example .env
-nano .env  # Set MODEL_PATH, DATA_PATH, PORT=8000
+nano .env
+# Set at minimum:
+# MODEL_DIR=./models
+# DATA_DIR=./data
+# PORT=8000
+# ENABLE_LSTM=true
+# ENABLE_GRU=false
+# ENABLE_XGBOOST=true
+# ENABLE_BERT=false
 
-# 8. Train models
-python -m app.train.train_all
-
-# 9. Run in background with nohup
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
-
-# Or use systemd (recommended)
-sudo nano /etc/systemd/system/sentinelai.service
+# 8. Start API with Gunicorn + Uvicorn worker
+venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 1
 ```
 
-**Systemd Service** (`/etc/systemd/system/sentinelai.service`):
-```ini
+For persistent production process, create a systemd service.
+
+```bash
+cat << 'EOF' > /etc/systemd/system/sentinelai.service
 [Unit]
 Description=SentinelAI Backend
 After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/Resume Project 1/backend
-Environment="PATH=/home/ubuntu/Resume Project 1/backend/venv/bin"
-ExecStart=/home/ubuntu/Resume Project 1/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+User=root
+WorkingDirectory=/root/Resume Project 1/backend
+Environment="PATH=/root/Resume Project 1/backend/venv/bin"
+ExecStart=/root/Resume Project 1/backend/venv/bin/gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 1
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable sentinelai
+systemctl restart sentinelai
+systemctl status sentinelai
 ```
 
-```bash
-# Enable and start service
-sudo systemctl enable sentinelai
-sudo systemctl start sentinelai
-sudo systemctl status sentinelai
+Backend URL:
+
+```text
+http://<DROPLET_IP>:8000
 ```
 
-**Configure Security Group**:
-- Allow inbound TCP on port 8000 from anywhere (0.0.0.0/0)
-- Allow SSH (port 22) from your IP
-
-Backend will be available at: `http://<EC2_PUBLIC_IP>:8000`
-
-#### Frontend on Netlify
+#### Frontend on DigitalOcean App Platform (Static Site)
 
 ```bash
-# 1. Build frontend
 cd frontend
 cp .env.example .env
-
-# 2. Update .env with EC2 backend URL
-echo "VITE_API_URL=http://<EC2_PUBLIC_IP>:8000/api/v1" > .env
-
-# 3. Build
+echo "VITE_API_URL=http://<DROPLET_IP>:8000/api/v1" > .env
 npm install
 npm run build
-
-# 4. Deploy to Netlify
-# - Drag-drop dist/ folder to Netlify
-# - Or connect GitHub repository
-# - Build command: npm run build
-# - Publish directory: dist
-# - Environment variable: VITE_API_URL=http://<EC2_PUBLIC_IP>:8000/api/v1
 ```
 
-Frontend will be available at: `https://<your-app>.netlify.app`
+Then in DigitalOcean App Platform:
+- Create Static Site from repository.
+- Build command: npm run build
+- Output directory: dist
+- Environment variable: VITE_API_URL=http://<DROPLET_IP>:8000/api/v1
+
+Frontend URL:
+
+```text
+https://<your-digitalocean-app-domain>
+```
 
 ## Architecture
 
@@ -461,24 +464,65 @@ Frontend runs at: http://localhost:3000
 
 ## Deployment
 
-### Backend → Render
+### Backend → DigitalOcean Droplet
 
-```bash
-docker build -t sentinelai-backend .
-docker run -p 8000:8000 sentinelai-backend
+Deploy FastAPI backend using systemd + Gunicorn on Ubuntu 22.04.
+
+### Frontend → DigitalOcean App Platform
+
+Deploy React frontend as a static site and set environment variable:
+
+```text
+VITE_API_URL=http://<DROPLET_IP>:8000/api/v1
 ```
 
-Deploy Dockerfile to Render with port 8000.
+### One-Click App Spec (DigitalOcean)
 
-### Frontend → Netlify
+Use the included App Platform spec file:
 
-```bash
-npm run build
+```text
+.do/app.yaml
 ```
 
-Connect repository to Netlify or drag-drop `dist/` folder.
+This provisions:
+- A backend web service from `backend/Dockerfile`
+- A frontend static site from `frontend/`
+- Required environment variable wiring (`VITE_API_URL`)
 
-Environment variable: `VITE_API_URL=<backend-url>`
+Free-tier/trial-credit profile (default):
+- Single backend instance (`basic-xxs`)
+- SQLite database (no managed DB cost)
+- Lightweight model mode (`ENABLE_BERT=false`, `ENABLE_GRU=false`)
+
+Note: DigitalOcean backend is usually credit-based, not permanently free. This profile minimizes cost for trial/free-credit periods.
+
+For production setup with managed PostgreSQL, health checks, and autoscaling limits, use:
+
+```text
+.do/app.prod.yaml
+```
+
+Production spec notes:
+- Binds backend `DATABASE_URL` to DigitalOcean managed PostgreSQL
+- Enables backend health checks at `/health`
+- Sets autoscaling range from 1 to 2 backend instances
+- Uses safer backend process command with Gunicorn timeout tuning
+
+### Deployment Checklist (Interview/Demo Ready)
+
+1. Backend health check returns `operational` at `/api/v1/system/health`.
+2. Frontend `VITE_API_URL` points to backend `/api/v1` base path.
+3. Lightweight mode is enabled first (`ENABLE_BERT=false`, `ENABLE_GRU=false`) on low-memory plans.
+4. `ALLOWED_ORIGINS` includes your frontend domain.
+5. One successful prediction is stored and visible via `/api/v1/history`.
+6. Systemd service is enabled and auto-restarts on reboot.
+7. Basic monitoring is active (CPU, RAM, response latency).
+8. For App Platform production spec, replace both placeholders:
+  - `REPLACE_WITH_BACKEND_DOMAIN`
+  - `REPLACE_WITH_FRONTEND_DOMAIN`
+9. For free-tier/trial profile (`.do/app.yaml`), also replace:
+  - `REPLACE_WITH_BACKEND_DOMAIN`
+  - `REPLACE_WITH_FRONTEND_DOMAIN`
 
 ## Project Structure
 
@@ -518,7 +562,7 @@ backend/
 │   ├── lstm_autoencoder.pth
 │   ├── gru_autoencoder.pth
 │   ├── xgboost_model.pkl
-│   └── distilbert/ (HuggingFace cache)
+│   └── distilbert/ (transformer model assets)
 ├── requirements.txt
 └── Dockerfile
 
@@ -544,7 +588,11 @@ frontend/
 │   └── main.jsx
 ├── package.json
 ├── tailwind.config.js
-└── netlify.toml
+└── vite.config.js
+
+.do/
+├── app.yaml
+└── app.prod.yaml
 ```
 
 ## Features

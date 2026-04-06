@@ -1,0 +1,67 @@
+name: sentinelai
+region: nyc
+
+services:
+  - name: sentinelai-backend
+    environment_slug: docker
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
+    http_port: 8000
+    run_command: gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000 --workers 1 --timeout 120
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 45
+      period_seconds: 20
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+    routes:
+      - path: /
+    envs:
+      - key: HOST
+        scope: RUN_TIME
+        value: "0.0.0.0"
+      - key: PORT
+        scope: RUN_TIME
+        value: "8000"
+      - key: API_V1_PREFIX
+        scope: RUN_TIME
+        value: "/api/v1"
+      - key: MODEL_DIR
+        scope: RUN_TIME
+        value: "models"
+      - key: DATA_DIR
+        scope: RUN_TIME
+        value: "data"
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: "sqlite:///./sentinelai.db"
+      - key: ENABLE_LSTM
+        scope: RUN_TIME
+        value: "true"
+      - key: ENABLE_GRU
+        scope: RUN_TIME
+        value: "false"
+      - key: ENABLE_XGBOOST
+        scope: RUN_TIME
+        value: "true"
+      - key: ENABLE_BERT
+        scope: RUN_TIME
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        scope: RUN_TIME
+        value: "https://REPLACE_WITH_FRONTEND_DOMAIN"
+
+static_sites:
+  - name: sentinelai-frontend
+    source_dir: frontend
+    build_command: npm ci && npm run build
+    output_dir: dist
+    routes:
+      - path: /
+    envs:
+      - key: VITE_API_URL
+        scope: BUILD_TIME
+        value: https://REPLACE_WITH_BACKEND_DOMAIN/api/v1
