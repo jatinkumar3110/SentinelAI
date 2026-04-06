@@ -24,9 +24,24 @@ The architecture was redesigned for constrained infrastructure by adding model t
 ## What is already prepared in this repository
 - DigitalOcean app spec (low-cost/trial profile): .do/app.yaml
 - DigitalOcean app spec (production profile): .do/app.prod.yaml
+- Root-level App Spec fallback for auto-detection: app.yaml
+- Root-level backend Dockerfile fallback for auto-detection: Dockerfile
 - Lightweight model toggles for low-memory deployments
 - Frontend API base URL through VITE_API_URL
 - Backend health endpoint and API routing under /api/v1
+
+## If DigitalOcean shows "No components detected"
+
+Use one of these two options:
+
+1. App Spec import (recommended)
+- In App Platform, choose to deploy from App Spec and select `app.yaml` from repo root.
+
+2. Root Dockerfile fallback
+- Create backend as Web Service using root `Dockerfile`.
+- Then add frontend Static Site component with source directory `frontend`.
+
+This repository now includes both root files so App Platform can move forward even when monorepo auto-detection fails.
 
 ## Fastest way to go live (DigitalOcean, low-cost profile)
 
