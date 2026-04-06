@@ -25,7 +25,10 @@ class LSTMAutoencoder(nn.Module):
         
     def forward(self, x):
         _, (hidden, _) = self.encoder(x)
-        decoded, _ = self.decoder(hidden.repeat(x.size(1), 1, 1).permute(1, 0, 2))
+        # Use the final encoder layer state and repeat across time steps.
+        # This preserves output sequence length equal to input length.
+        decoder_input = hidden[-1].unsqueeze(1).repeat(1, x.size(1), 1)
+        decoded, _ = self.decoder(decoder_input)
         return decoded
 
 
@@ -37,7 +40,10 @@ class GRUAutoencoder(nn.Module):
         
     def forward(self, x):
         _, hidden = self.encoder(x)
-        decoded, _ = self.decoder(hidden.repeat(x.size(1), 1, 1).permute(1, 0, 2))
+        # Use the final encoder layer state and repeat across time steps.
+        # This preserves output sequence length equal to input length.
+        decoder_input = hidden[-1].unsqueeze(1).repeat(1, x.size(1), 1)
+        decoded, _ = self.decoder(decoder_input)
         return decoded
 
 
