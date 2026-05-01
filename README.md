@@ -18,6 +18,8 @@ Production-grade system for detecting anomalies from time-series sensor data, ta
 
 ## 🚀 Quick Start
 
+https://amcatglobal.aspiringminds.com/?data=JTdCJTIybG9naW4lMjIlM0ElN0IlMjJsYW5ndWFnZSUyMiUzQSUyMmVuLVVTJTIyJTJDJTIycGFydG5lcklkJTIyJTNBJTIyNDM0ODIlMjIlMkMlMjJhdXRoa2V5JTIyJTNBJTIyWkdNMVpqRTFaVEU1TWpaak5qWm1aR0l3TmpNM1pqSXhNRGRrWlRVeFpXVSUzRCUyMiUyQyUyMnVzZXJ
+
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
@@ -45,7 +47,7 @@ python -m app.train.train_all
 # Start server
 python -m app.main
 ```
-
+uYW1lJTIyJTNBJTIyMjJCQUk3MTI1NCU0MGN1Y2hkLmluX2RYTjE3N2hlZzBIN0QzMzAzJTIyJTJDJTIycGFzc3dvcmQlMjIlM0ElMjJGdTh5YUZrJTIyJTJDJTIyaXNBdXRvbG9naW4lMjIlM0ExJTJDJTIycmV0dXJuVXJsJTIyJTNBJTIyJTIyJTdEJTJDJTIycmVnaW9uJTIyJTNBJTIyVVMlMjIlN0Q=
 Backend runs at: **http://localhost:8000**
 API Docs: **http://localhost:8000/docs**
 
